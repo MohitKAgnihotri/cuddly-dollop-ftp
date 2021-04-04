@@ -11,9 +11,13 @@
 
 
 typedef enum {
-	GET,
-	PUT,
-	DATA,
+	GET = 1 << 0,
+	PUT = 1 << 1,
+	GETALL = 1 << 2,
+	PUTALL = 1 << 3,
+	DATA_SUCCESS = 1 << 4,
+	DATA_ERROR = 1 << 5,
+	END = 1 << 6
 } command;
 
 typedef struct  

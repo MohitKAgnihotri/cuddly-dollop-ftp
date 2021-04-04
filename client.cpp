@@ -1,6 +1,6 @@
 #pragma once
 #pragma comment (lib, "Ws2_32.lib")
-#define _CRT_SECURE_NO_WARNINGS 1 
+#define _CRT_SECURE_NO_WARNINGS 1
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 
 #include <winsock2.h>
@@ -18,21 +18,26 @@
 #define RESP_LENGTH 40
 #define FILENAME_LENGTH 20
 #define REQUEST_PORT 2345
-#define BUFFER_LENGTH 1024 
+#define BUFFER_LENGTH 1024
 #define TRACE 0
 #define MSGHDRSIZE 16 //Message Header Size
 
-typedef enum {
-	GET,
-	PUT,
-	DATA,
+typedef enum
+{
+	GET = 1 << 0,
+	PUT = 1 << 1,
+	GETALL = 1 << 2,
+	PUTALL = 1 << 3,
+	DATA_SUCCESS = 1 << 4,
+	DATA_ERROR = 1 << 5,
+	END = 1 << 6
 } command;
 
 typedef struct
 {
 	char hostname[HOSTNAME_LENGTH];
 	char filename[FILENAME_LENGTH];
-} Req;  //request
+} Req; //request
 
 typedef struct
 {
@@ -42,7 +47,7 @@ typedef struct
 typedef struct
 {
 	command type;
-	int  length; //length of effective bytes in the buffer
+	int length; //length of effective bytes in the buffer
 	int file_read_offset;
 	int file_read_length;
 	char buffer[BUFFER_LENGTH];
@@ -51,26 +56,70 @@ typedef struct
 
 class TcpClient
 {
-	int sock;                    /* Socket descriptor */
+	int sock; /* Socket descriptor */
 	struct sockaddr_in ServAddr; /* server socket address */
-	unsigned short ServPort;     /* server port */
-	Req* reqp;               /* pointer to request */
-	Resp* respp;          /* pointer to response*/
-	Msg tpdu, rpdu;               /* Transmit and Receive message */
+	unsigned short ServPort; /* server port */
+	Req* reqp; /* pointer to request */
+	Resp* respp; /* pointer to response*/
+	Msg tpdu, rpdu; /* Transmit and Receive message */
 	WSADATA wsadata;
+	void create_get_message(Msg&, char const* filename);
+	void create_put_message(Msg&, char const* filename);
+	void create_getall_message(Msg&);
+	void create_putall_message(Msg&);
+	bool getfile(const char* filename);
+	bool putfile(const char* filename);
 public:
 	static BOOL fileExists(TCHAR* file);
-	TcpClient() {}
+
+	TcpClient()
+	{
+	}
+
 	void run(int argc, char* argv[]);
 	~TcpClient();
 	int msg_recv(int, Msg*);
 	int msg_send(int, Msg*);
 	unsigned long ResolveName(char name[]);
 	void err_sys(const char* fmt, ...);
-
 };
 
 using namespace std;
+
+void TcpClient::create_get_message(Msg& pdu, char const* filename)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = GET;
+	pdu.file_read_offset = 0;
+	pdu.file_read_length = 0;
+	strncpy(pdu.buffer, filename, strlen(filename));
+	pdu.length = strlen(tpdu.buffer);
+	pdu.buffer[tpdu.length + 1] = '\0';
+}
+
+void TcpClient::create_getall_message(Msg& pdu)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = GETALL;
+}
+
+void TcpClient::create_put_message(Msg& pdu, char const* filename)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = PUT;
+	pdu.file_read_offset = 0;
+	pdu.file_read_length = 0;
+	strncpy(pdu.buffer, filename, strlen(filename));
+	pdu.length = strlen(pdu.buffer);
+	pdu.buffer[pdu.length + 1] = '\0';
+}
+
+void TcpClient::create_putall_message(Msg& pdu)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = PUTALL;
+}
+
 
 BOOL TcpClient::fileExists(TCHAR* file)
 {
@@ -84,17 +133,111 @@ BOOL TcpClient::fileExists(TCHAR* file)
 	}
 	return found;
 }
+
+
+bool TcpClient::getfile(const char* filename)
+{
+	bool isError = false;
+	std::fstream file_get;
+	// Open the file in the write mode.
+	file_get.open(filename, std::fstream::out);
+	if (!file_get.is_open())
+		this->err_sys("Filed to open the file for writing");
+
+	file_get.write(rpdu.buffer, rpdu.length);
+	while (rpdu.length == BUFFER_LENGTH)
+	{
+		// if there is more data to write
+		memset(&rpdu, 0x00, sizeof(rpdu));
+		int bytes_read = msg_recv(sock, &rpdu);
+		if (bytes_read < 0)
+		{
+			err_sys("Error: Read");
+			closesocket(sock);
+			break;
+		}
+		if (bytes_read == 0)
+		{
+			err_sys("Socket probably closed by the client");
+			closesocket(sock);
+			break;
+		}
+		if (rpdu.type == DATA_SUCCESS)
+			file_get.write(rpdu.buffer, rpdu.length);
+		else if (rpdu.type == DATA_ERROR)
+		{
+			printf("Received Failure Response from the server : [%s]\n", rpdu.buffer);
+			isError = true;
+			break;
+		}
+		else
+		{
+			printf("Unexpected Message from the server: MessageType = [%d], Message content = [%s]\n", rpdu.type,
+			       rpdu.buffer);
+			isError = true;
+			break;
+		}
+	}
+	file_get.close();
+	if (!isError)
+	cout << "Transfer sucessful." << endl;
+	return isError;
+}
+
+int getfileSize(std::fstream &file)
+{
+	streampos begin, end;
+	unsigned int bytes_to_read;
+
+	//Calculate the file size.
+	begin = file.tellg();
+	file.seekg(0, ios::end);
+	end = file.tellg();
+	bytes_to_read = end - begin;
+
+	//Reset the file stream pointer to the start.
+	file.seekg(0, ios::beg);
+	return bytes_to_read;
+}
+
+bool TcpClient::putfile(const char* filename)
+{
+	std::fstream file_put;
+	file_put.open(filename, ios::in | ios::binary);
+	if (!file_put.is_open())
+		err_sys("Failed to open the file for reading");
+
+	int bytes_to_read = getfileSize(file_put);
+
+	/*Send the file */
+	tpdu.type = DATA_SUCCESS;
+	while (bytes_to_read > 0)
+	{
+		// send data packets
+		file_put.read(tpdu.buffer, BUFFER_LENGTH);
+		if (!file_put)
+			tpdu.length = file_put.gcount();
+		else
+			tpdu.length = BUFFER_LENGTH;
+		bytes_to_read -= tpdu.length;
+		msg_send(sock, &tpdu);
+	}
+	cout << "File" << filename << "sent." << endl;
+	file_put.close();
+	return true;
+}
+
 void TcpClient::run(int argc, char* argv[])
 {
 	//	if (argc != 4)
-		//err_sys("usage: client servername filename size/time");
-	char* inputserverhostname=new char[HOSTNAME_LENGTH];
-	char* inputfilname= new char[FILENAME_LENGTH];
-	char* inputrequesttype=new char[4];
+	//err_sys("usage: client servername filename size/time");
+	char* inputserverhostname = new char[HOSTNAME_LENGTH];
+	char* inputfilname = new char[FILENAME_LENGTH];
+	char* inputrequesttype = new char[4];
 
-	std::fstream file_get;
+
 	std::fstream file_put;
-	
+
 
 	cout << "Enter the following information" << endl;
 	cout << "Server hostname:";
@@ -120,116 +263,65 @@ void TcpClient::run(int argc, char* argv[])
 
 	//connect to the server
 	ServPort = REQUEST_PORT;
-	memset(&ServAddr, 0, sizeof(ServAddr));     /* Zero out structure */
-	ServAddr.sin_family = AF_INET;             /* Internet address family */
-	ServAddr.sin_addr.s_addr = ResolveName(inputserverhostname);   /* Server IP address */
+	memset(&ServAddr, 0, sizeof(ServAddr)); /* Zero out structure */
+	ServAddr.sin_family = AF_INET; /* Internet address family */
+	ServAddr.sin_addr.s_addr = ResolveName(inputserverhostname); /* Server IP address */
 	ServAddr.sin_port = htons(ServPort); /* Server port */
 	if (connect(sock, (struct sockaddr*)&ServAddr, sizeof(ServAddr)) < 0)
 		err_sys("Socket Creating Error");
 
 
 	command c = (inputrequesttype[0] == 'G') ? GET : PUT;
-	switch(c)
+	switch (c)
 	{
 	case GET:
-		memset(&rpdu, 0x00, sizeof(rpdu));
-		tpdu.type = GET;
-		tpdu.file_read_offset = 0;
-		tpdu.file_read_length = 0;
-		strncpy(tpdu.buffer, inputfilname, strlen(inputfilname));
-		tpdu.length = strlen(tpdu.buffer);
-		tpdu.buffer[tpdu.length + 1] = '\0';
 
+		create_get_message(tpdu, inputfilname);
 		/*Send Data to the server */
 		msg_send(sock, &tpdu);
+
+		memset(&rpdu, 0x00, sizeof(rpdu));
+
+		/*Receive Ready from the server*/
 		msg_recv(sock, &rpdu);
 
-		if (rpdu.type == DATA) 
+		if (rpdu.type == DATA_SUCCESS)
 		{
-			// Open the file in the write mode.
-			file_get.open(tpdu.buffer, std::fstream::out);
-			if (!file_get.is_open())
-				err_sys("Filed to open the file for writing");
-
-			file_get.write(rpdu.buffer, rpdu.length);
-			while (rpdu.length == BUFFER_LENGTH)
-			{
-				// if there is more data to write
-				memset(&rpdu, 0x00, sizeof(rpdu));
-				int bytes_read = msg_recv(sock, &rpdu);
-				if (bytes_read < 0) 
-				{
-					err_sys("Error: Read");
-					closesocket(sock);
-					break;
-				}
-				if (bytes_read == 0) 
-				{
-					err_sys("Socket probably closed by the client");
-					closesocket(sock);
-					break;
-				}
-				file_get.write(rpdu.buffer, rpdu.length);
-			}
-			file_get.close();
-			cout << "Transfer sucessful." << endl;
+			getfile(inputfilname);
 		}
-		else 
+		else if (rpdu.type == DATA_ERROR)
 		{
-			fprintf(stderr, "%s", rpdu.buffer);
+			err_sys("Received Failure Response from the server : [%s]\n", rpdu.buffer);
+		}
+		else
+		{
+			err_sys("Unexpected Message from the server: MessageType = [%d], Message content = [%s]\n", rpdu.type,
+			        rpdu.buffer);
 		}
 		break;
 
 	case PUT:
-		memset(&tpdu, 0x00, sizeof(tpdu));
-		tpdu.type = PUT;
-		tpdu.file_read_offset = 0;
-		tpdu.file_read_length = 0;
-		strncpy(tpdu.buffer, inputfilname, strlen(inputfilname));
-		tpdu.length = strlen(tpdu.buffer);
-		tpdu.buffer[tpdu.length + 1] = '\0';
 
-		file_put.open(tpdu.buffer, std::fstream::in | fstream::out);
-		if (!file_put.is_open())
-			err_sys("Failed to oepn the file for reading");
-
-		streampos begin, end;
-		unsigned int bytes_to_read;
+		create_put_message(tpdu, inputfilname);
 		msg_send(sock, &tpdu); // make upload request
+
+		//wait for the server response
 		msg_recv(sock, &rpdu); // recieve ready signal
 
-		//Calculate the file size.
-		begin = file_put.tellg();
-		file_put.seekg(0, ios::end);
-		end = file_put.tellg();
-		bytes_to_read = end - begin;
-
-		//Reset the file stream pointer to the start.
-		file_put.seekg(0, ios::beg);
-
-		if (rpdu.type == DATA)
+		if (rpdu.type == DATA_SUCCESS)
 		{
-			// check if server is ready
-			tpdu.type = DATA;
-			while (bytes_to_read > 0)
-			{
-				// send data packets
-				file_put.read(tpdu.buffer, BUFFER_LENGTH);
-				tpdu.length = file_put.gcount();
-				bytes_to_read -= tpdu.length;
-				msg_send(sock, &tpdu);
-			}
-			cout << "File sent." << endl;
+			putfile(inputfilname);
 		}
 		else
 		{
 			fprintf(stderr, "Error: Server not ready.\n");
 		}
-		file_put.close();
+
 		break;
 	}
 	closesocket(sock);
 }
+
 TcpClient::~TcpClient()
 {
 	/* When done uninstall winsock.dll (WSACleanup()) and exit */
@@ -239,7 +331,7 @@ TcpClient::~TcpClient()
 
 void TcpClient::err_sys(const char* fmt, ...) //from Richard Stevens's source code
 {
-	perror(NULL);
+	perror(nullptr);
 	va_list args;
 	va_start(args, fmt);
 	fprintf(stderr, "error: ");
@@ -251,9 +343,9 @@ void TcpClient::err_sys(const char* fmt, ...) //from Richard Stevens's source co
 
 unsigned long TcpClient::ResolveName(char name[])
 {
-	struct hostent* host;            /* Structure containing host information */
+	struct hostent* host; /* Structure containing host information */
 
-	if ((host = gethostbyname(name)) == NULL)
+	if ((host = gethostbyname(name)) == nullptr)
 		err_sys("gethostbyname() failed");
 
 	/* Return the binary, network byte ordered address */
@@ -267,14 +359,14 @@ msg_recv returns the length of bytes in the msg_ptr->buffer,which have been rece
 */
 int TcpClient::msg_recv(int sock, Msg* msg_ptr)
 {
-	int rbytes, n;
+	int rbytes, n = 0;
 
 	for (rbytes = 0; rbytes < MSGHDRSIZE; rbytes += n)
 		if ((n = recv(sock, (char*)msg_ptr + rbytes, MSGHDRSIZE - rbytes, 0)) <= 0)
 			err_sys("Recv MSGHDR Error");
 
 	for (rbytes = 0; rbytes < msg_ptr->length; rbytes += n)
-		if ((n = recv(sock, (char*)msg_ptr->buffer + rbytes, msg_ptr->length - rbytes, 0)) <= 0)
+		if ((n = recv(sock, static_cast<char*>(msg_ptr->buffer) + rbytes, msg_ptr->length - rbytes, 0)) <= 0)
 			err_sys("Recevier Buffer Error");
 
 	return msg_ptr->length;
@@ -288,7 +380,6 @@ int TcpClient::msg_send(int sock, Msg* msg_ptr)
 	if ((n = send(sock, (char*)msg_ptr, MSGHDRSIZE + msg_ptr->length, 0)) != (MSGHDRSIZE + msg_ptr->length))
 		err_sys("Send MSGHDRSIZE+length Error");
 	return (n - MSGHDRSIZE);
-
 }
 
 #else

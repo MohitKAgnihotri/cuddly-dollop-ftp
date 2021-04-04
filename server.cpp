@@ -155,8 +155,6 @@ void TcpThread::run() //cs: Server socket
 	Resp * respp;//a pointer to response
 	Req * reqp; //a pointer to the Request Packet
 	Msg rpdu,spdu; //send_message receive_message
-	struct _stat stat_buf;
-    int result;
 	int start_byte = 0;
 	int file_download_len = 0;
 	int bytes_to_read = 0;
@@ -171,12 +169,13 @@ void TcpThread::run() //cs: Server socket
 	{
 		/* Download request */
 	case GET:
+		printf("Starting transfer of \"%s\".\n", rpdu.buffer);
 		start_byte = rpdu.file_read_offset;
 		file_download_len = rpdu.file_read_length;
 		file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
 		if (!file_get.is_open())
 		{
-			spdu.type = DATA; // data unit type as error
+			spdu.type = DATA_ERROR; // data unit type as error
 			sprintf(spdu.buffer, "Error: File \"%s\" not found.\n", rpdu.buffer);
 			spdu.length = strlen(spdu.buffer);
 			msg_send(cs, &spdu);
@@ -185,7 +184,7 @@ void TcpThread::run() //cs: Server socket
 		else
 		{
 			int total_bytes_to_be_sent = 0;
-			spdu.type = DATA;
+			spdu.type = DATA_SUCCESS;
 			
 			//Calculate the file size.
 			std::streampos begin = file_get.tellg();
@@ -203,18 +202,19 @@ void TcpThread::run() //cs: Server socket
 				file_get.read(spdu.buffer, BUFFER_LENGTH);
 				spdu.length = file_get.gcount();
 				bytes_to_read -= spdu.length;
-				spdu.type = DATA;
+				spdu.type = DATA_SUCCESS;
 				msg_send(cs, &spdu);
 			}
 		}
 		file_get.close();
 		closesocket(cs); // close the connection
+		printf("Transfer sucessful.\n");
 		break;
 
 		/* Upload request */
 	case PUT:
 		memset(&spdu, 0x00, sizeof(spdu));
-		spdu.type = DATA;
+		spdu.type = DATA_SUCCESS;
 		spdu.length = 0;
 		msg_send(cs, &spdu); // tell client ready
 		file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out);
@@ -238,10 +238,6 @@ void TcpThread::run() //cs: Server socket
 			file_put.write(rpdu.buffer, rpdu.length); // write data to file
 		} while (rpdu.length == BUFFER_LENGTH);
 		file_put.close();
-		char buff[FILENAME_MAX]; //create string buffer to hold path
-		_getcwd(buff, FILENAME_MAX);
-		std::string current_working_dir(buff);
-		std::cout << current_working_dir;
 		printf("Transfer sucessful.\n");
 		break;
 	}
