@@ -69,6 +69,7 @@ class TcpClient
 	void create_putall_message(Msg&);
 	bool getfile(const char* filename);
 	bool putfile(const char* filename);
+	std::string getFileName();
 public:
 	static BOOL fileExists(TCHAR* file);
 
@@ -227,6 +228,24 @@ bool TcpClient::putfile(const char* filename)
 	return true;
 }
 
+string TcpClient::getFileName()
+{
+	string filename;
+	memset(&rpdu, 0x00, sizeof(MSG));
+	msg_recv(sock, &rpdu);
+	if (rpdu.type == DATA_SUCCESS)
+	{
+		filename = rpdu.buffer;
+	}
+	else if (rpdu.type == END)
+	{
+		filename = "";
+	}
+	
+	return filename;
+
+}
+
 void TcpClient::run(int argc, char* argv[])
 {
 	//	if (argc != 4)
@@ -316,8 +335,35 @@ void TcpClient::run(int argc, char* argv[])
 		{
 			fprintf(stderr, "Error: Server not ready.\n");
 		}
-
 		break;
+		
+	case GETALL:
+		// Send the message to the server and await ready response.
+		create_getall_message(tpdu);
+		
+		/*Send Request to the server */
+		msg_send(sock, &tpdu);
+
+		/*Get message from the server*/
+		msg_recv(sock, &rpdu);
+
+		if (rpdu.type == DATA_SUCCESS)
+		{
+			bool moreFileToSend = true;
+			while(moreFileToSend)
+			{
+				const string filename = getFileName();
+				if (!filename.empty())
+					getfile(filename.c_str());
+				else
+					moreFileToSend = false;
+			}
+			
+		}
+
+		
+		break;
+
 	}
 	closesocket(sock);
 }
