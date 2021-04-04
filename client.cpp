@@ -13,6 +13,7 @@
 #include <fstream>
 
 #include <direct.h>
+#include <vector>
 
 #define HOSTNAME_LENGTH 20
 #define RESP_LENGTH 40
@@ -129,10 +130,33 @@ BOOL TcpClient::fileExists(TCHAR* file)
 	int found = handle != INVALID_HANDLE_VALUE;
 	if (found)
 	{
-		//FindClose(&handle); this will crash
 		FindClose(handle);
 	}
 	return found;
+}
+
+vector<string> getFilesinDir(const char* folder)
+{
+	vector<string> fileList;
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind = FindFirstFile(folder, &FindFileData);
+	if (hFind == INVALID_HANDLE_VALUE)
+	{
+		printf("FindFirstFile failed (%d)\n", GetLastError());
+		return fileList;
+	}
+
+	do
+	{
+		if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			continue;
+
+		string s(FindFileData.cFileName);
+		fileList.push_back(s);
+	}
+	while (FindNextFile(hFind, &FindFileData) != 0);
+
+	return fileList;
 }
 
 
@@ -252,7 +276,8 @@ void TcpClient::run(int argc, char* argv[])
 	//err_sys("usage: client servername filename size/time");
 	char* inputserverhostname = new char[HOSTNAME_LENGTH];
 	char* inputfilname = new char[FILENAME_LENGTH];
-	char* inputrequesttype = new char[4];
+	char* inputfoldername = new char[FILENAME_LENGTH];
+	int inputrequesttype;
 
 
 	std::fstream file_put;
@@ -262,11 +287,28 @@ void TcpClient::run(int argc, char* argv[])
 	cout << "Server hostname:";
 	cin >> inputserverhostname;
 	cout << endl;
-	cout << "Requested file name:";
-	cin >> inputfilname;
-	cout << endl;
-	cout << "Request type (GET/PUT):";
+
+	
+	cout << "Request type " << endl;
+	cout << "1. GET" << endl;
+	cout << "2. PUT " << endl;
+	cout << "3. GETALL" << endl;
+	cout << "4. PUTALL " << endl;
 	cin >> inputrequesttype;
+
+	if (inputrequesttype == 1 || inputrequesttype == 2)
+	{
+		cout << "Requested file name:";
+		cin >> inputfilname;
+		cout << endl;
+	}
+	else if (inputrequesttype == 1 || inputrequesttype == 2)
+	{
+		cout << "Requested folder name:";
+		cin >> inputfoldername;
+		cout << endl;
+	}
+
 	cout << endl;
 
 	//initilize winsocket
@@ -360,9 +402,37 @@ void TcpClient::run(int argc, char* argv[])
 			}
 			
 		}
-
-		
 		break;
+
+	case PUTALL:
+		vector<string> fileList = getFilesinDir(inputfoldername);
+		if (fileList.empty())
+		{
+			cout << "No files in the folder" << endl;
+		}
+		else
+		{
+			cout << "Starting transmission" << endl;
+			create_putall_message(tpdu);
+			msg_send(sock, &tpdu);
+
+			// Wait for the message from the server
+			msg_recv(sock, &rpdu);
+
+			if (rpdu.type == DATA_SUCCESS)
+			{
+				//server is ready for the reception
+				for (auto const& value : fileList)
+				{
+					putfile(value.c_str());
+				}
+
+				//send END packet
+				memset(&tpdu, 0x00, sizeof(Msg));
+				tpdu.type = END;
+				msg_send(sock, &tpdu);
+			}
+		}
 
 	}
 	closesocket(sock);
