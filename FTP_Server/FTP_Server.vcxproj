@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{04b17d51-c91d-467e-be77-b984a964c569}</ProjectGuid>
+    <ProjectGuid>{1EEF85EE-070C-4B00-AFDA-18A302285594}</ProjectGuid>
     <RootNamespace>FTP</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>FTP_Server</ProjectName>
