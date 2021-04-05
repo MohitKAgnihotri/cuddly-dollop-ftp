@@ -280,6 +280,8 @@ void TcpThread::run() //cs: Server socket
 			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
 			Create_Error_Request(spdu);
 			strncpy(spdu.buffer, "Directory Already Exist. Can't Overwrite", strlen("Directory Already Exist. Can't Overwrite") + 1);
+			spdu.length = strlen("Directory Already Exist. Can't Overwrite") + 1;
+			spdu.buffer[spdu.length] = '\0';
 			msg_send(cs, &spdu); 
 		}
 		else
@@ -287,10 +289,10 @@ void TcpThread::run() //cs: Server socket
 			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
 			Create_Error_Request(spdu);
 			strncpy(spdu.buffer, "Can't Create Directory at the Server", strlen("Can't Create Directory at the Server") + 1);
+			spdu.length = strlen("Can't Create Directory at the Server") + 1;
+			spdu.buffer[spdu.length] = '\0';
 			msg_send(cs, &spdu);
 		}
-
-
 
 
 		while(1)

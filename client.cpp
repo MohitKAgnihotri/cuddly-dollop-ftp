@@ -449,6 +449,11 @@ void TcpClient::run(int argc, char* argv[])
 				tpdu.type = END;
 				msg_send(sock, &tpdu);
 			}
+			else
+			{
+				std::cout << "Error received from the server" << std::endl;
+				std::cout << rpdu.buffer << std::endl;
+			}
 		}
 
 	}
