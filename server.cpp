@@ -150,6 +150,43 @@ int TcpThread::msg_send(int sock, Msg* msg_ptr)
 }
 #endif
 
+void TcpThread::Create_Ready_Request(Msg &pdu)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = DATA_SUCCESS;
+}
+
+
+void TcpThread::Create_Error_Request(Msg& pdu)
+{
+	memset(&pdu, 0x00, sizeof(Msg));
+	pdu.type = DATA_ERROR;
+}
+
+void TcpThread::GetFileFromClient(std::fstream &fileToGet)
+{
+	Msg rpdu;
+	do {
+		memset(&rpdu, 0x00, sizeof(rpdu));
+		int bytes_read = msg_recv(cs, &rpdu);
+		if (bytes_read < 0) 
+		{
+			perror("Error: Read");
+			closesocket(cs);
+			break;
+		}
+		if (bytes_read == 0) 
+		{
+			printf("Socket probably closed by the client\n");
+			closesocket(cs);
+			break;
+		}
+		fileToGet.write(rpdu.buffer, rpdu.length); // write data to file
+	} while (rpdu.length == BUFFER_LENGTH);
+}
+
+
+
 void TcpThread::run() //cs: Server socket
 {
 	Resp * respp;//a pointer to response
@@ -213,32 +250,75 @@ void TcpThread::run() //cs: Server socket
 
 		/* Upload request */
 	case PUT:
-		memset(&spdu, 0x00, sizeof(spdu));
-		spdu.type = DATA_SUCCESS;
-		spdu.length = 0;
+		Create_Ready_Request(spdu);
 		msg_send(cs, &spdu); // tell client ready
+		
 		file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out);
 		if (!file_put.is_open())
 			err_sys("failed to open the file");
-
 		printf("Starting transfer of \"%s\".\n", rpdu.buffer);
-		do {
-			memset(&rpdu, 0x00, sizeof(rpdu));
-			int bytes_read = msg_recv(cs, &rpdu);
-			if (bytes_read < 0) {
-				perror("Error: Read");
-				closesocket(cs);
-				break;
-			}
-			if (bytes_read == 0) {
-				printf("Socket probably closed by the client\n");
-				closesocket(cs);
-				break;
-			}
-			file_put.write(rpdu.buffer, rpdu.length); // write data to file
-		} while (rpdu.length == BUFFER_LENGTH);
+		GetFileFromClient(file_put);
 		file_put.close();
 		printf("Transfer sucessful.\n");
+		break;
+	case GETALL:
+
+		break;
+	case PUTALL:
+
+		//Try to create folder with the name in the Request
+
+		if (CreateDirectory(rpdu.buffer, NULL))
+		{
+			std::cout << "Directory" << rpdu.buffer << " Sucessfully Created." << std::endl;
+			Create_Ready_Request(spdu);
+			msg_send(cs, &spdu); // tell client ready
+			SetCurrentDirectory(rpdu.buffer);
+		}
+		else if (ERROR_ALREADY_EXISTS == GetLastError())
+		{
+			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
+			Create_Error_Request(spdu);
+			strncpy(spdu.buffer, "Directory Already Exist. Can't Overwrite", strlen("Directory Already Exist. Can't Overwrite") + 1);
+			msg_send(cs, &spdu); 
+		}
+		else
+		{
+			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
+			Create_Error_Request(spdu);
+			strncpy(spdu.buffer, "Can't Create Directory at the Server", strlen("Can't Create Directory at the Server") + 1);
+			msg_send(cs, &spdu);
+		}
+
+
+
+
+		while(1)
+		{
+			// Client will do multiple PUT
+			// Receive PUT message for the 1st file
+			msg_recv(cs, &rpdu); // Receive a message from the client
+			if (rpdu.type == PUT)
+			{
+				file_put.open("server" + std::string(rpdu.buffer), std::fstream::out);
+				if (!file_put.is_open())
+					err_sys("failed to open the file");
+
+				printf("Starting transfer of \"%s\".\n", rpdu.buffer);
+				
+				Create_Ready_Request(spdu);
+				msg_send(cs, &spdu); // tell client ready
+
+				GetFileFromClient(file_put);
+				file_put.close();
+				std::cout<<"Transfer sucessful for file" << rpdu.buffer << std::endl;
+			}
+			else if (rpdu.type == END)
+			{
+				std::cout << "Finished getting all the files." << std::endl;
+				break;
+			}
+		}
 		break;
 	}
 

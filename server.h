@@ -10,14 +10,15 @@
 #define MSGHDRSIZE 16 //Message Header Size
 
 
-typedef enum {
-	GET = 1 << 0,
-	PUT = 1 << 1,
-	GETALL = 1 << 2,
-	PUTALL = 1 << 3,
-	DATA_SUCCESS = 1 << 4,
-	DATA_ERROR = 1 << 5,
-	END = 1 << 6
+typedef enum
+{
+	GET = 1,
+	PUT = 2,
+	GETALL = 3,
+	PUTALL = 4,
+	DATA_SUCCESS = 5,
+	DATA_ERROR = 6,
+	END = 7
 } command;
 
 typedef struct  
@@ -51,6 +52,7 @@ class TcpServer
 	int clientLen;            /* Length of Server address data structure */
 	char servername[HOSTNAME_LENGTH];
 
+
 public:
 		TcpServer();
 		~TcpServer();
@@ -61,6 +63,9 @@ class TcpThread :public Thread
 {
 
 	int cs;
+	void Create_Ready_Request(Msg& pdu);
+	void Create_Error_Request(Msg& pdu);
+	void GetFileFromClient(std::fstream&);
 public: 
 	TcpThread(int clientsocket):cs(clientsocket)
 	{}

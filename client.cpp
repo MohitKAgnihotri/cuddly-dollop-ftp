@@ -25,13 +25,13 @@
 
 typedef enum
 {
-	GET = 1 << 0,
-	PUT = 1 << 1,
-	GETALL = 1 << 2,
-	PUTALL = 1 << 3,
-	DATA_SUCCESS = 1 << 4,
-	DATA_ERROR = 1 << 5,
-	END = 1 << 6
+	GET = 1,
+	PUT = 2,
+	GETALL = 3,
+	PUTALL = 4,
+	DATA_SUCCESS = 5,
+	DATA_ERROR = 6,
+	END = 7
 } command;
 
 typedef struct
@@ -66,8 +66,8 @@ class TcpClient
 	WSADATA wsadata;
 	void create_get_message(Msg&, char const* filename);
 	void create_put_message(Msg&, char const* filename);
-	void create_getall_message(Msg&);
-	void create_putall_message(Msg&);
+	void create_getall_message(Msg&, char const* filename);
+	void create_putall_message(Msg&, char const* filename);
 	bool getfile(const char* filename);
 	bool putfile(const char* filename);
 	std::string getFileName();
@@ -96,13 +96,16 @@ void TcpClient::create_get_message(Msg& pdu, char const* filename)
 	pdu.file_read_length = 0;
 	strncpy(pdu.buffer, filename, strlen(filename));
 	pdu.length = strlen(tpdu.buffer);
-	pdu.buffer[tpdu.length + 1] = '\0';
+	pdu.buffer[pdu.length + 1] = '\0';
 }
 
-void TcpClient::create_getall_message(Msg& pdu)
+void TcpClient::create_getall_message(Msg& pdu, char const* foldername)
 {
 	memset(&pdu, 0x00, sizeof(Msg));
 	pdu.type = GETALL;
+	strncpy(pdu.buffer, foldername, strlen(foldername));
+	pdu.length = strlen(tpdu.buffer);
+	pdu.buffer[pdu.length + 1] = '\0';
 }
 
 void TcpClient::create_put_message(Msg& pdu, char const* filename)
@@ -116,10 +119,13 @@ void TcpClient::create_put_message(Msg& pdu, char const* filename)
 	pdu.buffer[pdu.length + 1] = '\0';
 }
 
-void TcpClient::create_putall_message(Msg& pdu)
+void TcpClient::create_putall_message(Msg& pdu, char const* foldername)
 {
 	memset(&pdu, 0x00, sizeof(Msg));
 	pdu.type = PUTALL;
+	strncpy(pdu.buffer, foldername, strlen(foldername));
+	pdu.length = strlen(tpdu.buffer);
+	pdu.buffer[pdu.length + 1] = '\0';
 }
 
 
@@ -137,9 +143,10 @@ BOOL TcpClient::fileExists(TCHAR* file)
 
 vector<string> getFilesinDir(const char* folder)
 {
+	string search_path = string(folder) + "/*.*";
 	vector<string> fileList;
 	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind = FindFirstFile(folder, &FindFileData);
+	HANDLE hFind = FindFirstFile(search_path.c_str(), &FindFileData);
 	if (hFind == INVALID_HANDLE_VALUE)
 	{
 		printf("FindFirstFile failed (%d)\n", GetLastError());
@@ -148,13 +155,11 @@ vector<string> getFilesinDir(const char* folder)
 
 	do
 	{
-		if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			continue;
-
-		string s(FindFileData.cFileName);
-		fileList.push_back(s);
+		if (!(FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			fileList.emplace_back(FindFileData.cFileName);
 	}
 	while (FindNextFile(hFind, &FindFileData) != 0);
+	FindClose(hFind);
 
 	return fileList;
 }
@@ -302,7 +307,7 @@ void TcpClient::run(int argc, char* argv[])
 		cin >> inputfilname;
 		cout << endl;
 	}
-	else if (inputrequesttype == 1 || inputrequesttype == 2)
+	else if (inputrequesttype == 3 || inputrequesttype == 4)
 	{
 		cout << "Requested folder name:";
 		cin >> inputfoldername;
@@ -332,8 +337,8 @@ void TcpClient::run(int argc, char* argv[])
 		err_sys("Socket Creating Error");
 
 
-	command c = (inputrequesttype[0] == 'G') ? GET : PUT;
-	switch (c)
+
+	switch (inputrequesttype)
 	{
 	case GET:
 
@@ -381,7 +386,7 @@ void TcpClient::run(int argc, char* argv[])
 		
 	case GETALL:
 		// Send the message to the server and await ready response.
-		create_getall_message(tpdu);
+		create_getall_message(tpdu, inputfoldername);
 		
 		/*Send Request to the server */
 		msg_send(sock, &tpdu);
@@ -413,7 +418,7 @@ void TcpClient::run(int argc, char* argv[])
 		else
 		{
 			cout << "Starting transmission" << endl;
-			create_putall_message(tpdu);
+			create_putall_message(tpdu, inputfoldername);
 			msg_send(sock, &tpdu);
 
 			// Wait for the message from the server
@@ -424,7 +429,19 @@ void TcpClient::run(int argc, char* argv[])
 				//server is ready for the reception
 				for (auto const& value : fileList)
 				{
-					putfile(value.c_str());
+					create_put_message(tpdu, value.c_str());
+					msg_send(sock, &tpdu); // make upload request
+
+				    /*Get message from the server*/
+					msg_recv(sock, &rpdu);
+					if (rpdu.type == DATA_SUCCESS)
+					{
+						putfile(value.c_str());
+					}
+					else
+					{
+						fprintf(stderr, "Error: Server not ready.\n");
+					}					
 				}
 
 				//send END packet
