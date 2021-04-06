@@ -14,7 +14,10 @@
 #include <fstream>
 #include <direct.h>
 #include "Thread.h"
+#include "utility.h"
 #include "server.h"
+
+using namespace std;
 
 TcpServer::TcpServer()
 {
@@ -150,17 +153,27 @@ int TcpThread::msg_send(int sock, Msg* msg_ptr)
 }
 #endif
 
+
+
 void TcpThread::Create_Ready_Request(Msg &pdu)
 {
 	memset(&pdu, 0x00, sizeof(Msg));
 	pdu.type = DATA_SUCCESS;
 }
 
+void TcpThread::Create_END_Request(Msg &pdu)
+{
+    memset(&pdu, 0x00, sizeof(Msg));
+    pdu.type = END;
+}
 
-void TcpThread::Create_Error_Request(Msg& pdu)
+
+void TcpThread::Create_Error_Request(Msg& pdu, const std::string &errorString)
 {
 	memset(&pdu, 0x00, sizeof(Msg));
 	pdu.type = DATA_ERROR;
+    memcpy(pdu.buffer,errorString.c_str(),errorString.length());
+    pdu.length = errorString.length();
 }
 
 void TcpThread::GetFileFromClient(std::fstream &fileToGet)
@@ -185,64 +198,33 @@ void TcpThread::GetFileFromClient(std::fstream &fileToGet)
 	} while (rpdu.length == BUFFER_LENGTH);
 }
 
-
-
 void TcpThread::run() //cs: Server socket
 {
-	Resp * respp;//a pointer to response
-	Req * reqp; //a pointer to the Request Packet
 	Msg rpdu,spdu; //send_message receive_message
-	int start_byte = 0;
-	int file_download_len = 0;
-	int bytes_to_read = 0;
+	unsigned int bytes_to_read = 0;
 	std::fstream file_get;
 	std::fstream file_put;
 
 	memset(&rpdu, 0x00, sizeof(rpdu));
-		
 	msg_recv(cs,&rpdu); // Receive a message from the client
 	
 	switch (rpdu.type)
 	{
 		/* Download request */
 	case GET:
-		printf("Starting transfer of \"%s\".\n", rpdu.buffer);
-		start_byte = rpdu.file_read_offset;
-		file_download_len = rpdu.file_read_length;
+		cout  << "Starting transfer of" << rpdu.buffer << endl;
+
 		file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
 		if (!file_get.is_open())
 		{
-			spdu.type = DATA_ERROR; // data unit type as error
-			sprintf(spdu.buffer, "Error: File \"%s\" not found.\n", rpdu.buffer);
-			spdu.length = strlen(spdu.buffer);
+            Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found" ));
 			msg_send(cs, &spdu);
-			fprintf(stderr, "Error: File \"%s\" not found.\n", rpdu.buffer);
+			cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
 		}
 		else
 		{
-			int total_bytes_to_be_sent = 0;
-			spdu.type = DATA_SUCCESS;
-			
-			//Calculate the file size.
-			std::streampos begin = file_get.tellg();
-			file_get.seekg(0, std::ios::end);
-			std::streampos end = file_get.tellg();
-			bytes_to_read = end - begin;
-
-			//reset the file pointer to the start
-			file_get.seekg(0, std::ios::beg);
-			
-			total_bytes_to_be_sent = bytes_to_read;
-			while (bytes_to_read > 0)
-			{
-				memset(&spdu, 0x00, sizeof(spdu));
-				file_get.read(spdu.buffer, BUFFER_LENGTH);
-				spdu.length = file_get.gcount();
-				bytes_to_read -= spdu.length;
-				spdu.type = DATA_SUCCESS;
-				msg_send(cs, &spdu);
-			}
-		}
+            (void)SendFileToClient(file_get);
+        }
 		file_get.close();
 		closesocket(cs); // close the connection
 		printf("Transfer sucessful.\n");
@@ -261,13 +243,72 @@ void TcpThread::run() //cs: Server socket
 		file_put.close();
 		printf("Transfer sucessful.\n");
 		break;
-	case GETALL:
 
+	case GETALL:
+        // Check if the directory Exist
+        if (isDirectoryExist(rpdu.buffer))
+        {
+            std::vector<std::string> filesinDir = getFilesinDir(rpdu.buffer);
+
+            if (!filesinDir.empty())
+            {
+
+                // Send Ready  to the client
+                Create_Ready_Request(spdu);
+
+                // Start GET ALL for the all the files
+                for (auto &file : filesinDir)
+                {
+                    strncat(spdu.buffer,file.c_str(),file.length());
+                    strncat(spdu.buffer,",",1);
+                }
+
+                spdu.length = strlen(spdu.buffer) > BUFFER_LENGTH ? BUFFER_LENGTH : strlen(spdu.buffer);
+                msg_send(cs, &spdu);
+                // set current directory
+                SetCurrentDirectory(rpdu.buffer);
+
+                while(true)
+                {
+                    memset(&rpdu, 0x00, sizeof(Msg));
+                    msg_recv(cs, &rpdu);
+                    if (rpdu.type == GET) {
+                        cout << "Starting transfer of" << rpdu.buffer << endl;
+
+                        file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                        if (!file_get.is_open()) {
+                            Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found"));
+                            msg_send(cs, &spdu);
+                            cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
+                        } else {
+                            (void) SendFileToClient(file_get);
+                        }
+                        file_get.close();
+                    }
+                    else if (rpdu.type == END) {
+                        cout << "Transfer Finished" << endl;
+                        break;
+                    }
+                    else
+                    {
+                        cout << "Unknown Packet from the Client" << endl;
+                    }
+                }
+                SetCurrentDirectory("../");
+            }
+            Create_END_Request(spdu);
+            msg_send(cs, &spdu);
+        }
+        else
+        {
+            std::cout << "Directory" << rpdu.buffer << "Doesn't Exist. Can't GETALL." << std::endl;
+            std::cout << "Current working directory = " << current_working_directory();
+            Create_Error_Request(spdu, std::string("Directory Doesn't Exist. Can't GETALL."));
+            msg_send(cs, &spdu);
+        }
 		break;
 	case PUTALL:
-
 		//Try to create folder with the name in the Request
-
 		if (CreateDirectory(rpdu.buffer, NULL))
 		{
 			std::cout << "Directory" << rpdu.buffer << " Sucessfully Created." << std::endl;
@@ -278,19 +319,13 @@ void TcpThread::run() //cs: Server socket
 		else if (ERROR_ALREADY_EXISTS == GetLastError())
 		{
 			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
-			Create_Error_Request(spdu);
-			strncpy(spdu.buffer, "Directory Already Exist. Can't Overwrite", strlen("Directory Already Exist. Can't Overwrite") + 1);
-			spdu.length = strlen("Directory Already Exist. Can't Overwrite") + 1;
-			spdu.buffer[spdu.length] = '\0';
+			Create_Error_Request(spdu, std::string("Directory Already Exist. Can't Overwrite"));
 			msg_send(cs, &spdu); 
 		}
 		else
 		{
 			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
-			Create_Error_Request(spdu);
-			strncpy(spdu.buffer, "Can't Create Directory at the Server", strlen("Can't Create Directory at the Server") + 1);
-			spdu.length = strlen("Can't Create Directory at the Server") + 1;
-			spdu.buffer[spdu.length] = '\0';
+			Create_Error_Request(spdu, std::string("Can't Create Directory at the Server"));
 			msg_send(cs, &spdu);
 		}
 
@@ -318,6 +353,7 @@ void TcpThread::run() //cs: Server socket
 			else if (rpdu.type == END)
 			{
 				std::cout << "Finished getting all the files." << std::endl;
+                SetCurrentDirectory("../");
 				break;
 			}
 		}
@@ -328,6 +364,25 @@ void TcpThread::run() //cs: Server socket
 	
 }
 
+int TcpThread::SendFileToClient(fstream &file_get)
+{
+    Msg spdu;
+    unsigned int bytes_to_read = getfileSize(file_get);
+    while (bytes_to_read > 0)
+    {
+        memset(&spdu, 0x00, sizeof(spdu));
+        file_get.read(spdu.buffer, BUFFER_LENGTH);
+        if (!file_get)
+            spdu.length = file_get.gcount();
+        else
+            spdu.length = BUFFER_LENGTH;
+
+        bytes_to_read -= spdu.length;
+        spdu.type = DATA_SUCCESS;
+        msg_send(cs, &spdu);
+    }
+    return 0;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////

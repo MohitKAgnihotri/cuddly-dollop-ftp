@@ -5,7 +5,6 @@
 
 #include <winsock2.h>
 #include <stdio.h>
-#include <cstdio>
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -14,77 +13,9 @@
 
 #include <direct.h>
 #include <vector>
+#include "utility.h"
+#include "client.h"
 
-#define HOSTNAME_LENGTH 20
-#define RESP_LENGTH 40
-#define FILENAME_LENGTH 20
-#define REQUEST_PORT 2345
-#define BUFFER_LENGTH 1024
-#define TRACE 0
-#define MSGHDRSIZE 16 //Message Header Size
-
-typedef enum
-{
-	GET = 1,
-	PUT = 2,
-	GETALL = 3,
-	PUTALL = 4,
-	DATA_SUCCESS = 5,
-	DATA_ERROR = 6,
-	END = 7
-} command;
-
-typedef struct
-{
-	char hostname[HOSTNAME_LENGTH];
-	char filename[FILENAME_LENGTH];
-} Req; //request
-
-typedef struct
-{
-	char response[RESP_LENGTH];
-} Resp; //response
-
-typedef struct
-{
-	command type;
-	int length; //length of effective bytes in the buffer
-	int file_read_offset;
-	int file_read_length;
-	char buffer[BUFFER_LENGTH];
-} Msg; //message format used for sending and receiving
-
-
-class TcpClient
-{
-	int sock; /* Socket descriptor */
-	struct sockaddr_in ServAddr; /* server socket address */
-	unsigned short ServPort; /* server port */
-	Req* reqp; /* pointer to request */
-	Resp* respp; /* pointer to response*/
-	Msg tpdu, rpdu; /* Transmit and Receive message */
-	WSADATA wsadata;
-	void create_get_message(Msg&, char const* filename);
-	void create_put_message(Msg&, char const* filename);
-	void create_getall_message(Msg&, char const* filename);
-	void create_putall_message(Msg&, char const* filename);
-	bool getfile(const char* filename);
-	bool putfile(const char* filename);
-	std::string getFileName();
-public:
-	static BOOL fileExists(TCHAR* file);
-
-	TcpClient()
-	{
-	}
-
-	void run(int argc, char* argv[]);
-	~TcpClient();
-	int msg_recv(int, Msg*);
-	int msg_send(int, Msg*);
-	unsigned long ResolveName(char name[]);
-	void err_sys(const char* fmt, ...);
-};
 
 using namespace std;
 
@@ -119,6 +50,11 @@ void TcpClient::create_put_message(Msg& pdu, char const* filename)
 	pdu.buffer[pdu.length + 1] = '\0';
 }
 
+void TcpClient::create_end_message(Msg& pdu) {
+    memset(&pdu, 0x00, sizeof(Msg));
+    pdu.type = END;
+}
+
 void TcpClient::create_putall_message(Msg& pdu, char const* foldername)
 {
 	memset(&pdu, 0x00, sizeof(Msg));
@@ -141,28 +77,7 @@ BOOL TcpClient::fileExists(TCHAR* file)
 	return found;
 }
 
-vector<string> getFilesinDir(const char* folder)
-{
-	string search_path = string(folder) + "/*.*";
-	vector<string> fileList;
-	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind = FindFirstFile(search_path.c_str(), &FindFileData);
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		printf("FindFirstFile failed (%d)\n", GetLastError());
-		return fileList;
-	}
 
-	do
-	{
-		if (!(FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-			fileList.emplace_back(FindFileData.cFileName);
-	}
-	while (FindNextFile(hFind, &FindFileData) != 0);
-	FindClose(hFind);
-
-	return fileList;
-}
 
 
 bool TcpClient::getfile(const char* filename)
@@ -170,7 +85,7 @@ bool TcpClient::getfile(const char* filename)
 	bool isError = false;
 	std::fstream file_get;
 	// Open the file in the write mode.
-	file_get.open(filename, std::fstream::out);
+	file_get.open("Client"+string(filename), std::fstream::out);
 	if (!file_get.is_open())
 		this->err_sys("Filed to open the file for writing");
 
@@ -178,7 +93,6 @@ bool TcpClient::getfile(const char* filename)
 	while (rpdu.length == BUFFER_LENGTH)
 	{
 		// if there is more data to write
-		memset(&rpdu, 0x00, sizeof(rpdu));
 		int bytes_read = msg_recv(sock, &rpdu);
 		if (bytes_read < 0)
 		{
@@ -214,21 +128,7 @@ bool TcpClient::getfile(const char* filename)
 	return isError;
 }
 
-int getfileSize(std::fstream &file)
-{
-	streampos begin, end;
-	unsigned int bytes_to_read;
 
-	//Calculate the file size.
-	begin = file.tellg();
-	file.seekg(0, ios::end);
-	end = file.tellg();
-	bytes_to_read = end - begin;
-
-	//Reset the file stream pointer to the start.
-	file.seekg(0, ios::beg);
-	return bytes_to_read;
-}
 
 bool TcpClient::putfile(const char* filename)
 {
@@ -237,7 +137,7 @@ bool TcpClient::putfile(const char* filename)
 	if (!file_put.is_open())
 		err_sys("Failed to open the file for reading");
 
-	int bytes_to_read = getfileSize(file_put);
+	unsigned int bytes_to_read = getfileSize(file_put);
 
 	/*Send the file */
 	tpdu.type = DATA_SUCCESS;
@@ -260,7 +160,6 @@ bool TcpClient::putfile(const char* filename)
 string TcpClient::getFileName()
 {
 	string filename;
-	memset(&rpdu, 0x00, sizeof(MSG));
 	msg_recv(sock, &rpdu);
 	if (rpdu.type == DATA_SUCCESS)
 	{
@@ -341,12 +240,9 @@ void TcpClient::run(int argc, char* argv[])
 	switch (inputrequesttype)
 	{
 	case GET:
-
 		create_get_message(tpdu, inputfilname);
 		/*Send Data to the server */
 		msg_send(sock, &tpdu);
-
-		memset(&rpdu, 0x00, sizeof(rpdu));
 
 		/*Receive Ready from the server*/
 		msg_recv(sock, &rpdu);
@@ -385,6 +281,23 @@ void TcpClient::run(int argc, char* argv[])
 		break;
 		
 	case GETALL:
+        //Try to create folder with the name in the Request
+        if (CreateDirectory(string("Client_" + string(inputfoldername)).c_str(), NULL))
+        {
+            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Successfully Created." << std::endl;
+            SetCurrentDirectory(string("Client_" + string(inputfoldername)).c_str());
+        }
+        else if (ERROR_ALREADY_EXISTS == GetLastError())
+        {
+            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Already Exist. Can't GETALL." << std::endl;
+            break;
+        }
+        else
+        {
+            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Already Exist. Can't put." << std::endl;
+            break;
+        }
+
 		// Send the message to the server and await ready response.
 		create_getall_message(tpdu, inputfoldername);
 		
@@ -396,17 +309,43 @@ void TcpClient::run(int argc, char* argv[])
 
 		if (rpdu.type == DATA_SUCCESS)
 		{
-			bool moreFileToSend = true;
-			while(moreFileToSend)
-			{
-				const string filename = getFileName();
-				if (!filename.empty())
-					getfile(filename.c_str());
-				else
-					moreFileToSend = false;
-			}
-			
+            vector<string> fileList = ParseListofFile(rpdu.buffer);
+			for(auto &file : fileList)
+            {
+                create_get_message(tpdu, file.c_str());
+                /*Send Data to the server */
+                msg_send(sock, &tpdu);
+
+                /*Receive Ready from the server*/
+                msg_recv(sock, &rpdu);
+
+                if (rpdu.type == DATA_SUCCESS)
+                {
+                    getfile(file.c_str());
+                }
+                else if (rpdu.type == DATA_ERROR)
+                {
+                    err_sys("Received Failure Response from the server : [%s]\n", rpdu.buffer);
+                }
+                else
+                {
+                    err_sys("Unexpected Message from the server: MessageType = [%d], Message content = [%s]\n", rpdu.type,
+                            rpdu.buffer);
+                }
+            }
+            create_end_message(tpdu);
+            msg_send(sock, &tpdu);
 		}
+        else if (rpdu.type == DATA_ERROR)
+        {
+            cout<<"Error @Server" << endl;
+            cout << rpdu.buffer << endl;
+        }
+        else
+        {
+            cout << "Incorrect Response from the Server " << rpdu.type << endl;
+        }
+        SetCurrentDirectory("../");
 		break;
 
 	case PUTALL:
@@ -498,6 +437,7 @@ msg_recv returns the length of bytes in the msg_ptr->buffer,which have been rece
 int TcpClient::msg_recv(int sock, Msg* msg_ptr)
 {
 	int rbytes, n = 0;
+    memset(msg_ptr, 0x00, sizeof(Msg));
 
 	for (rbytes = 0; rbytes < MSGHDRSIZE; rbytes += n)
 		if ((n = recv(sock, (char*)msg_ptr + rbytes, MSGHDRSIZE - rbytes, 0)) <= 0)
