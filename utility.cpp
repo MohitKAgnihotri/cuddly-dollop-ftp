@@ -23,10 +23,11 @@ std::string current_working_directory( void )
 vector<string> ParseListofFile(char * inputBuffer)
 {
     vector<string> filelist;
-    char *p = strtok(inputBuffer, ",");
+    char* next_token;
+    char *p = strtok_s(inputBuffer, ",", &next_token);
     while (p) {
         filelist.emplace_back(string(p));
-        p = strtok(NULL, ",");
+        p = strtok_s(NULL, ",",&next_token);
     }
     return filelist;
 }
