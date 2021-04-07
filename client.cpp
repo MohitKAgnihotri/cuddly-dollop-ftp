@@ -174,229 +174,205 @@ string TcpClient::getFileName()
 
 }
 
-void TcpClient::run(int argc, char* argv[])
-{
-	//	if (argc != 4)
-	//err_sys("usage: client servername filename size/time");
-	char* inputserverhostname = new char[HOSTNAME_LENGTH];
-	char* inputfilname = new char[FILENAME_LENGTH];
-	char* inputfoldername = new char[FILENAME_LENGTH];
-	int inputrequesttype;
+void TcpClient::run(int argc, char* argv[]) {
+    //	if (argc != 4)
+    //err_sys("usage: client servername filename size/time");
+    char *inputserverhostname = new char[HOSTNAME_LENGTH];
+    char *inputfilname = new char[FILENAME_LENGTH];
+    char *inputfoldername = new char[FILENAME_LENGTH];
+    int inputrequesttype;
 
 
-	std::fstream file_put;
+    std::fstream file_put;
 
+    cout << "Enter the following information" << endl;
+    cout << "Server hostname:";
+    cin >> inputserverhostname;
+    cout << endl;
 
-	cout << "Enter the following information" << endl;
-	cout << "Server hostname:";
-	cin >> inputserverhostname;
-	cout << endl;
+    //initilize winsocket
+    if (WSAStartup(0x0202, &wsadata) != 0) {
+        WSACleanup();
+        err_sys("Error in starting WSAStartup()\n");
+    }
 
-	
-	cout << "Request type " << endl;
-	cout << "1. GET" << endl;
-	cout << "2. PUT " << endl;
-	cout << "3. GETALL" << endl;
-	cout << "4. PUTALL " << endl;
-	cin >> inputrequesttype;
+    //Create the socket
+    if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) //create the socket
+        err_sys("Socket Creating Error");
 
-	if (inputrequesttype == 1 || inputrequesttype == 2)
-	{
-		cout << "Requested file name:";
-		cin >> inputfilname;
-		cout << endl;
-	}
-	else if (inputrequesttype == 3 || inputrequesttype == 4)
-	{
-		cout << "Requested folder name:";
-		cin >> inputfoldername;
-		cout << endl;
-	}
+    //connect to the server
+    ServPort = REQUEST_PORT;
+    memset(&ServAddr, 0, sizeof(ServAddr)); /* Zero out structure */
+    ServAddr.sin_family = AF_INET; /* Internet address family */
+    ServAddr.sin_addr.s_addr = ResolveName(inputserverhostname); /* Server IP address */
+    ServAddr.sin_port = htons(ServPort); /* Server port */
+    if (connect(sock, (struct sockaddr *) &ServAddr, sizeof(ServAddr)) < 0)
+        err_sys("Socket Creating Error");
 
-	cout << endl;
-
-	//initilize winsocket
-	if (WSAStartup(0x0202, &wsadata) != 0)
-	{
-		WSACleanup();
-		err_sys("Error in starting WSAStartup()\n");
-	}
-
-	//Create the socket
-	if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) //create the socket 
-		err_sys("Socket Creating Error");
-
-	//connect to the server
-	ServPort = REQUEST_PORT;
-	memset(&ServAddr, 0, sizeof(ServAddr)); /* Zero out structure */
-	ServAddr.sin_family = AF_INET; /* Internet address family */
-	ServAddr.sin_addr.s_addr = ResolveName(inputserverhostname); /* Server IP address */
-	ServAddr.sin_port = htons(ServPort); /* Server port */
-	if (connect(sock, (struct sockaddr*)&ServAddr, sizeof(ServAddr)) < 0)
-		err_sys("Socket Creating Error");
-
-
-
-	switch (inputrequesttype)
-	{
-	case GET:
-		create_get_message(tpdu, inputfilname);
-		/*Send Data to the server */
-		msg_send(sock, &tpdu);
-
-		/*Receive Ready from the server*/
-		msg_recv(sock, &rpdu);
-
-		if (rpdu.type == DATA_SUCCESS)
-		{
-			getfile(inputfilname);
-		}
-		else if (rpdu.type == DATA_ERROR)
-		{
-			err_sys("Received Failure Response from the server : [%s]\n", rpdu.buffer);
-		}
-		else
-		{
-			err_sys("Unexpected Message from the server: MessageType = [%d], Message content = [%s]\n", rpdu.type,
-			        rpdu.buffer);
-		}
-		break;
-
-	case PUT:
-
-		create_put_message(tpdu, inputfilname);
-		msg_send(sock, &tpdu); // make upload request
-
-		//wait for the server response
-		msg_recv(sock, &rpdu); // recieve ready signal
-
-		if (rpdu.type == DATA_SUCCESS)
-		{
-			putfile(inputfilname);
-		}
-		else
-		{
-			fprintf(stderr, "Error: Server not ready.\n");
-		}
-		break;
-		
-	case GETALL:
-        //Try to create folder with the name in the Request
-        if (CreateDirectory(string("Client_" + string(inputfoldername)).c_str(), NULL))
-        {
-            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Successfully Created." << std::endl;
-            SetCurrentDirectory(string("Client_" + string(inputfoldername)).c_str());
-        }
-        else if (ERROR_ALREADY_EXISTS == GetLastError())
-        {
-            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Already Exist. Can't GETALL." << std::endl;
-            break;
-        }
-        else
-        {
-            std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str() << " Already Exist. Can't put." << std::endl;
-            break;
-        }
-
-		// Send the message to the server and await ready response.
-		create_getall_message(tpdu, inputfoldername);
-		
-		/*Send Request to the server */
-		msg_send(sock, &tpdu);
-
-		/*Get message from the server*/
-		msg_recv(sock, &rpdu);
-
-		if (rpdu.type == DATA_SUCCESS)
-		{
-            vector<string> fileList = ParseListofFile(rpdu.buffer);
-			for(auto &file : fileList)
-            {
-                create_get_message(tpdu, file.c_str());
+    inputrequesttype = getUserInput(inputfilname, inputfoldername);
+    while (inputrequesttype != EXIT)
+    {
+        switch (inputrequesttype) {
+            case GET:
+                create_get_message(tpdu, inputfilname);
                 /*Send Data to the server */
                 msg_send(sock, &tpdu);
 
                 /*Receive Ready from the server*/
                 msg_recv(sock, &rpdu);
 
-                if (rpdu.type == DATA_SUCCESS)
-                {
-                    getfile(file.c_str());
+                if (rpdu.type == DATA_SUCCESS) {
+                    getfile(inputfilname);
+                } else if (rpdu.type == DATA_ERROR) {
+                    cout<<"Received Failure Response from the server" << rpdu.buffer << endl;
+                } else {
+                    cout<<"Unexpected Message from the server: MessageType" << rpdu.type << "Message content = " << rpdu.buffer << endl;
                 }
-                else if (rpdu.type == DATA_ERROR)
-                {
-                    err_sys("Received Failure Response from the server : [%s]\n", rpdu.buffer);
+                break;
+
+            case PUT:
+
+                file_put.open(inputfilname, ios::in | ios::binary);
+                if (!file_put.is_open()) {
+                    cout << "Failed to open the file for reading";
+                    break;
                 }
-                else
-                {
-                    err_sys("Unexpected Message from the server: MessageType = [%d], Message content = [%s]\n", rpdu.type,
-                            rpdu.buffer);
+
+                create_put_message(tpdu, inputfilname);
+                msg_send(sock, &tpdu); // make upload request
+
+                //wait for the server response
+                msg_recv(sock, &rpdu); // recieve ready signal
+
+                if (rpdu.type == DATA_SUCCESS) {
+                    putfile(inputfilname);
+                } else {
+                    fprintf(stderr, "Error: Server not ready.\n");
                 }
-            }
-            create_end_message(tpdu);
-            msg_send(sock, &tpdu);
-		}
-        else if (rpdu.type == DATA_ERROR)
-        {
-            cout<<"Error @Server" << endl;
-            cout << rpdu.buffer << endl;
+                break;
+
+            case GETALL:
+                //Try to create folder with the name in the Request
+                if (CreateDirectory(string("Client_" + string(inputfoldername)).c_str(), NULL)) {
+                    std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str()
+                              << " Successfully Created." << std::endl;
+                    SetCurrentDirectory(string("Client_" + string(inputfoldername)).c_str());
+                } else if (ERROR_ALREADY_EXISTS == GetLastError()) {
+                    std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str()
+                              << " Already Exist. Can't GETALL." << std::endl;
+                    break;
+                } else {
+                    std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str()
+                              << " Already Exist. Can't put." << std::endl;
+                    break;
+                }
+
+                // Send the message to the server and await ready response.
+                create_getall_message(tpdu, inputfoldername);
+
+                /*Send Request to the server */
+                msg_send(sock, &tpdu);
+
+                /*Get message from the server*/
+                msg_recv(sock, &rpdu);
+
+                if (rpdu.type == DATA_SUCCESS) {
+                    vector<string> fileList = ParseListofFile(rpdu.buffer);
+                    for (auto &file : fileList) {
+                        create_get_message(tpdu, file.c_str());
+                        /*Send Data to the server */
+                        msg_send(sock, &tpdu);
+
+                        /*Receive Ready from the server*/
+                        msg_recv(sock, &rpdu);
+
+                        if (rpdu.type == DATA_SUCCESS) {
+                            getfile(file.c_str());
+                        } else if (rpdu.type == DATA_ERROR) {
+                            cout<<"Received Failure Response from the server" << rpdu.buffer << endl;
+                        } else {
+                            cout<<"Unexpected Message from the server: MessageType" << rpdu.type << "Message content = " << rpdu.buffer << endl;
+                        }
+                    }
+                    create_end_message(tpdu);
+                    msg_send(sock, &tpdu);
+                } else if (rpdu.type == DATA_ERROR) {
+                    cout << "Error @Server" << endl;
+                    cout << rpdu.buffer << endl;
+                } else {
+                    cout << "Incorrect Response from the Server " << rpdu.type << endl;
+                }
+                SetCurrentDirectory("../");
+                break;
+
+            case PUTALL:
+                vector<string> fileList = getFilesinDir(inputfoldername);
+                if (fileList.empty()) {
+                    cout << "No files in the folder" << endl;
+                } else {
+                    cout << "Starting transmission" << endl;
+                    create_putall_message(tpdu, inputfoldername);
+                    msg_send(sock, &tpdu);
+
+                    // Wait for the message from the server
+                    msg_recv(sock, &rpdu);
+
+                    if (rpdu.type == DATA_SUCCESS) {
+                        SetCurrentDirectory(inputfoldername);
+                        //server is ready for the reception
+                        for (auto const &value : fileList) {
+                            create_put_message(tpdu, value.c_str());
+                            msg_send(sock, &tpdu); // make upload request
+
+                            /*Get message from the server*/
+                            msg_recv(sock, &rpdu);
+                            if (rpdu.type == DATA_SUCCESS) {
+                                putfile(value.c_str());
+                            } else {
+                                fprintf(stderr, "Error: Server not ready.\n");
+                            }
+                        }
+
+                        SetCurrentDirectory("../");
+
+                        //send END packet
+                        memset(&tpdu, 0x00, sizeof(Msg));
+                        tpdu.type = END;
+                        msg_send(sock, &tpdu);
+                    } else {
+                        std::cout << "Error received from the server" << std::endl;
+                        std::cout << rpdu.buffer << std::endl;
+                    }
+                }
+
         }
-        else
-        {
-            cout << "Incorrect Response from the Server " << rpdu.type << endl;
-        }
-        SetCurrentDirectory("../");
-		break;
-
-	case PUTALL:
-		vector<string> fileList = getFilesinDir(inputfoldername);
-		if (fileList.empty())
-		{
-			cout << "No files in the folder" << endl;
-		}
-		else
-		{
-			cout << "Starting transmission" << endl;
-			create_putall_message(tpdu, inputfoldername);
-			msg_send(sock, &tpdu);
-
-			// Wait for the message from the server
-			msg_recv(sock, &rpdu);
-
-			if (rpdu.type == DATA_SUCCESS)
-			{
-				//server is ready for the reception
-				for (auto const& value : fileList)
-				{
-					create_put_message(tpdu, value.c_str());
-					msg_send(sock, &tpdu); // make upload request
-
-				    /*Get message from the server*/
-					msg_recv(sock, &rpdu);
-					if (rpdu.type == DATA_SUCCESS)
-					{
-						putfile(value.c_str());
-					}
-					else
-					{
-						fprintf(stderr, "Error: Server not ready.\n");
-					}					
-				}
-
-				//send END packet
-				memset(&tpdu, 0x00, sizeof(Msg));
-				tpdu.type = END;
-				msg_send(sock, &tpdu);
-			}
-			else
-			{
-				std::cout << "Error received from the server" << std::endl;
-				std::cout << rpdu.buffer << std::endl;
-			}
-		}
-
-	}
+        inputrequesttype = getUserInput(inputfilname, inputfoldername);
+    }
 	closesocket(sock);
+}
+
+int TcpClient::getUserInput(char *inputfilname, char *inputfoldername)
+{
+    int inputrequesttype;
+    cout << "Request type " << endl;
+    cout << "1. GET" << endl;
+    cout << "2. PUT " << endl;
+    cout << "3. GETALL" << endl;
+    cout << "4. PUTALL " << endl;
+    cout << "5. Exit" << endl;
+    cin >> inputrequesttype;
+
+    if (inputrequesttype == 1 || inputrequesttype == 2) {
+        cout << "Requested file name:";
+        cin >> inputfilname;
+        cout << endl;
+    } else if (inputrequesttype == 3 || inputrequesttype == 4) {
+        cout << "Requested folder name:";
+        cin >> inputfoldername;
+        cout << endl;
+    }
+    cout << endl;
+    return inputrequesttype;
 }
 
 TcpClient::~TcpClient()

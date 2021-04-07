@@ -205,160 +205,160 @@ void TcpThread::run() //cs: Server socket
 	std::fstream file_get;
 	std::fstream file_put;
 
-	memset(&rpdu, 0x00, sizeof(rpdu));
-	msg_recv(cs,&rpdu); // Receive a message from the client
-	
-	switch (rpdu.type)
-	{
-		/* Download request */
-	case GET:
-		cout  << "Starting transfer of" << rpdu.buffer << endl;
+	while(1)
+    {
+        memset(&rpdu, 0x00, sizeof(rpdu));
+        msg_recv(cs,&rpdu); // Receive a message from the client
 
-		file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
-		if (!file_get.is_open())
-		{
-            Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found" ));
-			msg_send(cs, &spdu);
-			cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
-		}
-		else
-		{
-            (void)SendFileToClient(file_get);
-        }
-		file_get.close();
-		closesocket(cs); // close the connection
-		printf("Transfer sucessful.\n");
-		break;
-
-		/* Upload request */
-	case PUT:
-		Create_Ready_Request(spdu);
-		msg_send(cs, &spdu); // tell client ready
-		
-		file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out);
-		if (!file_put.is_open())
-			err_sys("failed to open the file");
-		printf("Starting transfer of \"%s\".\n", rpdu.buffer);
-		GetFileFromClient(file_put);
-		file_put.close();
-		printf("Transfer sucessful.\n");
-		break;
-
-	case GETALL:
-        // Check if the directory Exist
-        if (isDirectoryExist(rpdu.buffer))
+        switch (rpdu.type)
         {
-            std::vector<std::string> filesinDir = getFilesinDir(rpdu.buffer);
-
-            if (!filesinDir.empty())
-            {
-
-                // Send Ready  to the client
-                Create_Ready_Request(spdu);
-
-                // Start GET ALL for the all the files
-                for (auto &file : filesinDir)
+            /* Download request */
+            case GET:
+                cout  << "Starting transfer of" << rpdu.buffer << endl;
+                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                if (!file_get.is_open())
                 {
-                    strncat(spdu.buffer,file.c_str(),file.length());
-                    strncat(spdu.buffer,",",1);
+                    Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found" ));
+                    msg_send(cs, &spdu);
+                    cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
                 }
-
-                spdu.length = strlen(spdu.buffer) > BUFFER_LENGTH ? BUFFER_LENGTH : strlen(spdu.buffer);
-                msg_send(cs, &spdu);
-                // set current directory
-                SetCurrentDirectory(rpdu.buffer);
-
-                while(true)
+                else
                 {
-                    memset(&rpdu, 0x00, sizeof(Msg));
-                    msg_recv(cs, &rpdu);
-                    if (rpdu.type == GET) {
-                        cout << "Starting transfer of" << rpdu.buffer << endl;
+                    (void)SendFileToClient(file_get);
+                }
+                file_get.close();
+                printf("Transfer sucessful.\n");
+                break;
 
-                        file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
-                        if (!file_get.is_open()) {
-                            Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found"));
-                            msg_send(cs, &spdu);
-                            cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
-                        } else {
-                            (void) SendFileToClient(file_get);
+                /* Upload request */
+            case PUT:
+                Create_Ready_Request(spdu);
+                msg_send(cs, &spdu); // tell client ready
+
+                file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out);
+                if (!file_put.is_open())
+                    err_sys("failed to open the file");
+                printf("Starting transfer of \"%s\".\n", rpdu.buffer);
+                GetFileFromClient(file_put);
+                file_put.close();
+                printf("Transfer sucessful.\n");
+                break;
+
+            case GETALL:
+                // Check if the directory Exist
+                if (isDirectoryExist(rpdu.buffer))
+                {
+                    std::vector<std::string> filesinDir = getFilesinDir(rpdu.buffer);
+
+                    if (!filesinDir.empty())
+                    {
+
+                        // Send Ready  to the client
+                        Create_Ready_Request(spdu);
+
+                        // Start GET ALL for the all the files
+                        for (auto &file : filesinDir)
+                        {
+                            strncat(spdu.buffer,file.c_str(),file.length());
+                            strncat(spdu.buffer,",",1);
                         }
-                        file_get.close();
+
+                        spdu.length = strlen(spdu.buffer) > BUFFER_LENGTH ? BUFFER_LENGTH : strlen(spdu.buffer);
+                        msg_send(cs, &spdu);
+                        // set current directory
+                        SetCurrentDirectory(rpdu.buffer);
+
+                        while(true)
+                        {
+                            memset(&rpdu, 0x00, sizeof(Msg));
+                            msg_recv(cs, &rpdu);
+                            if (rpdu.type == GET) {
+                                cout << "Starting transfer of" << rpdu.buffer << endl;
+
+                                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                                if (!file_get.is_open()) {
+                                    Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found"));
+                                    msg_send(cs, &spdu);
+                                    cout << "Error: File " << rpdu.buffer << " Not Found" << endl;
+                                } else {
+                                    (void) SendFileToClient(file_get);
+                                }
+                                file_get.close();
+                            }
+                            else if (rpdu.type == END) {
+                                cout << "Transfer Finished" << endl;
+                                break;
+                            }
+                            else
+                            {
+                                cout << "Unknown Packet from the Client" << endl;
+                            }
+                        }
+                        SetCurrentDirectory("../");
                     }
-                    else if (rpdu.type == END) {
-                        cout << "Transfer Finished" << endl;
+                    Create_END_Request(spdu);
+                    msg_send(cs, &spdu);
+                }
+                else
+                {
+                    std::cout << "Directory" << rpdu.buffer << "Doesn't Exist. Can't GETALL." << std::endl;
+                    std::cout << "Current working directory = " << current_working_directory();
+                    Create_Error_Request(spdu, std::string("Directory Doesn't Exist. Can't GETALL."));
+                    msg_send(cs, &spdu);
+                }
+                break;
+            case PUTALL:
+                //Try to create folder with the name in the Request
+                string FolderName = string("Server_" + string(rpdu.buffer));
+                if (CreateDirectory(FolderName.c_str(), NULL))
+                {
+                    std::cout << "Directory" << FolderName << " Sucessfully Created." << std::endl;
+                    Create_Ready_Request(spdu);
+                    msg_send(cs, &spdu); // tell client ready
+                    SetCurrentDirectory(FolderName.c_str());
+                }
+                else if (ERROR_ALREADY_EXISTS == GetLastError())
+                {
+                    std::cout << "Directory" << FolderName << " Already Exist. Can't put." << std::endl;
+                    Create_Error_Request(spdu, std::string("Directory Already Exist. Can't Overwrite"));
+                    msg_send(cs, &spdu);
+                }
+                else
+                {
+                    std::cout << "Directory" << FolderName << " Already Exist. Can't put." << std::endl;
+                    Create_Error_Request(spdu, std::string("Can't Create Directory at the Server"));
+                    msg_send(cs, &spdu);
+                }
+                while(1)
+                {
+                    // Client will do multiple PUT
+                    // Receive PUT message for the 1st file
+                    msg_recv(cs, &rpdu); // Receive a message from the client
+                    if (rpdu.type == PUT)
+                    {
+                        file_put.open("server" + std::string(rpdu.buffer), std::fstream::out);
+                        if (!file_put.is_open())
+                            err_sys("failed to open the file");
+
+                        printf("Starting transfer of \"%s\".\n", rpdu.buffer);
+
+                        Create_Ready_Request(spdu);
+                        msg_send(cs, &spdu); // tell client ready
+
+                        GetFileFromClient(file_put);
+                        file_put.close();
+                        std::cout<<"Transfer sucessful for file" << rpdu.buffer << std::endl;
+                    }
+                    else if (rpdu.type == END)
+                    {
+                        std::cout << "Finished getting all the files." << std::endl;
+                        SetCurrentDirectory("../");
                         break;
                     }
-                    else
-                    {
-                        cout << "Unknown Packet from the Client" << endl;
-                    }
                 }
-                SetCurrentDirectory("../");
-            }
-            Create_END_Request(spdu);
-            msg_send(cs, &spdu);
+                break;
         }
-        else
-        {
-            std::cout << "Directory" << rpdu.buffer << "Doesn't Exist. Can't GETALL." << std::endl;
-            std::cout << "Current working directory = " << current_working_directory();
-            Create_Error_Request(spdu, std::string("Directory Doesn't Exist. Can't GETALL."));
-            msg_send(cs, &spdu);
-        }
-		break;
-	case PUTALL:
-		//Try to create folder with the name in the Request
-		if (CreateDirectory(rpdu.buffer, NULL))
-		{
-			std::cout << "Directory" << rpdu.buffer << " Sucessfully Created." << std::endl;
-			Create_Ready_Request(spdu);
-			msg_send(cs, &spdu); // tell client ready
-			SetCurrentDirectory(rpdu.buffer);
-		}
-		else if (ERROR_ALREADY_EXISTS == GetLastError())
-		{
-			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
-			Create_Error_Request(spdu, std::string("Directory Already Exist. Can't Overwrite"));
-			msg_send(cs, &spdu); 
-		}
-		else
-		{
-			std::cout << "Directory" << rpdu.buffer << " Already Exist. Can't put." << std::endl;
-			Create_Error_Request(spdu, std::string("Can't Create Directory at the Server"));
-			msg_send(cs, &spdu);
-		}
-
-
-		while(1)
-		{
-			// Client will do multiple PUT
-			// Receive PUT message for the 1st file
-			msg_recv(cs, &rpdu); // Receive a message from the client
-			if (rpdu.type == PUT)
-			{
-				file_put.open("server" + std::string(rpdu.buffer), std::fstream::out);
-				if (!file_put.is_open())
-					err_sys("failed to open the file");
-
-				printf("Starting transfer of \"%s\".\n", rpdu.buffer);
-				
-				Create_Ready_Request(spdu);
-				msg_send(cs, &spdu); // tell client ready
-
-				GetFileFromClient(file_put);
-				file_put.close();
-				std::cout<<"Transfer sucessful for file" << rpdu.buffer << std::endl;
-			}
-			else if (rpdu.type == END)
-			{
-				std::cout << "Finished getting all the files." << std::endl;
-                SetCurrentDirectory("../");
-				break;
-			}
-		}
-		break;
-	}
+    }
 
 	closesocket(cs);
 	

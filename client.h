@@ -30,6 +30,8 @@ public:
     int msg_send(int, Msg*);
     unsigned long ResolveName(char name[]);
     void err_sys(const char* fmt, ...);
+
+    int TcpClient::getUserInput(char *inputfilname, char *inputfoldername);
 };
 
 #endif//FTP_CLIENT_H

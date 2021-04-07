@@ -19,9 +19,10 @@ typedef enum
     PUT = 2,
     GETALL = 3,
     PUTALL = 4,
-    DATA_SUCCESS = 5,
-    DATA_ERROR = 6,
-    END = 7
+    EXIT = 5,
+    DATA_SUCCESS = 6,
+    DATA_ERROR = 7,
+    END = 8,
 } command;
 
 typedef struct
