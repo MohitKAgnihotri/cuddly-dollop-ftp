@@ -296,8 +296,11 @@ void TcpThread::run() //cs: Server socket
                         }
                         SetCurrentDirectory("../");
                     }
-                    Create_END_Request(spdu);
-                    msg_send(cs, &spdu);
+                    else
+                    {
+                        Create_END_Request(spdu);
+                        msg_send(cs, &spdu);
+                    }
                 }
                 else
                 {
@@ -359,8 +362,11 @@ void TcpThread::run() //cs: Server socket
                         }
                         SetCurrentDirectory("../");
                     }
-                    Create_END_Request(spdu);
-                    msg_send(cs, &spdu);
+                    else
+                    {
+                        Create_END_Request(spdu);
+                        msg_send(cs, &spdu);
+                    }
                 }
                 else
                 {

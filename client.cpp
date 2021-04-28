@@ -88,7 +88,7 @@ TcpClient::getfile(const char *filename)
     bool isError = false;
     std::fstream file_get;
     // Open the file in the write mode.
-    file_get.open("Client" + string(filename), std::fstream::out);
+    file_get.open(string(filename), std::fstream::out);
     if (!file_get.is_open())
         this->err_sys("Filed to open the file for writing");
 
@@ -219,12 +219,11 @@ TcpClient::run(int argc, char *argv[])
     {
         switch (inputrequesttype)
         {
-            case GET:
-                create_get_message(tpdu, inputfilname);
+            case GET:create_get_message(tpdu, inputfilname);
                 /*Send Data to the server */
                 msg_send(sock, &tpdu);
 
-                /*Receive Ready from the server*/
+                /*Receive nReady from the server*/
                 msg_recv(sock, &rpdu);
 
                 if (rpdu.type == DATA_SUCCESS)
@@ -242,8 +241,7 @@ TcpClient::run(int argc, char *argv[])
                 }
                 break;
 
-            case PUT:
-                file_put.open(inputfilname, ios::in | ios::binary);
+            case PUT:file_put.open(inputfilname, ios::in | ios::binary);
                 if (!file_put.is_open())
                 {
                     cout << "Failed to open the file for reading";
@@ -337,18 +335,20 @@ TcpClient::run(int argc, char *argv[])
                 SetCurrentDirectory("../");
                 break;
             case SYNC:
+            {
                 //Try to create folder with the name in the Request
-                if (CreateDirectory(string("Client_" + string(inputfoldername)).c_str(), NULL))
+                vector<string> currfileList = getFilesinDir(inputfoldername);
+                if (CreateDirectory(inputfoldername, NULL))
                 {
-                    std::cout << "Directory" << string("Client_" + string(inputfoldername)).c_str()
+                    std::cout << "Directory" << inputfoldername
                               << " Successfully Created." << std::endl;
-                    SetCurrentDirectory(string("Client_" + string(inputfoldername)).c_str());
+                    SetCurrentDirectory(inputfoldername);
                 }
 
-                // Enter the Folder as it already exist
+                    // Enter the Folder as it already exist
                 else if (ERROR_ALREADY_EXISTS == GetLastError())
                 {
-                    SetCurrentDirectory(string("Client_" + string(inputfoldername)).c_str());
+                    SetCurrentDirectory(inputfoldername);
                 }
 
                 // Send the message to the server and await ready response.
@@ -365,29 +365,33 @@ TcpClient::run(int argc, char *argv[])
                     vector<string> fileList = ParseListofFile(rpdu.buffer);
                     for (auto &file : fileList)
                     {
-                        create_get_message(tpdu, file.c_str());
-                        /*Send Data to the server */
-                        msg_send(sock, &tpdu);
+                        if (std::find(currfileList.begin(), currfileList.end(), file) == currfileList.end())
+                        {
+                            create_get_message(tpdu, file.c_str());
+                            /*Send Data to the server */
+                            msg_send(sock, &tpdu);
 
-                        /*Receive Ready from the server*/
-                        msg_recv(sock, &rpdu);
+                            /*Receive Ready from the server*/
+                            msg_recv(sock, &rpdu);
 
-                        if (rpdu.type == DATA_SUCCESS)
-                        {
-                            getfile(file.c_str());
-                        }
-                        else if (rpdu.type == DATA_ERROR)
-                        {
-                            cout << "Received Failure Response from the server" << rpdu.buffer << endl;
-                        }
-                        else
-                        {
-                            cout << "Unexpected Message from the server: MessageType" << rpdu.type
-                                 << "Message content = " << rpdu.buffer << endl;
+                            if (rpdu.type == DATA_SUCCESS)
+                            {
+                                getfile(file.c_str());
+                            }
+                            else if (rpdu.type == DATA_ERROR)
+                            {
+                                cout << "Received Failure Response from the server" << rpdu.buffer << endl;
+                            }
+                            else
+                            {
+                                cout << "Unexpected Message from the server: MessageType" << rpdu.type
+                                     << "Message content = " << rpdu.buffer << endl;
+                            }
                         }
                     }
                     create_end_message(tpdu);
                     msg_send(sock, &tpdu);
+                    cout << "Sync completed for " << inputfoldername << endl;
                 }
                 else if (rpdu.type == DATA_ERROR)
                 {
@@ -399,6 +403,7 @@ TcpClient::run(int argc, char *argv[])
                     cout << "Incorrect Response from the Server " << rpdu.type << endl;
                 }
                 SetCurrentDirectory("../");
+            }
                 break;
 
             case PUTALL:vector<string> fileList = getFilesinDir(inputfoldername);
@@ -449,7 +454,6 @@ TcpClient::run(int argc, char *argv[])
                         std::cout << rpdu.buffer << std::endl;
                     }
                 }
-
         }
         inputrequesttype = getUserInput(inputfilname, inputfoldername);
     }
