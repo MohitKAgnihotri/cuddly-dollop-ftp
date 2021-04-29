@@ -88,7 +88,7 @@ TcpClient::getfile(const char *filename)
     bool isError = false;
     std::fstream file_get;
     // Open the file in the write mode.
-    file_get.open(string(filename), std::fstream::out);
+    file_get.open(string(filename), std::fstream::out | ios::binary);
     if (!file_get.is_open())
         this->err_sys("Filed to open the file for writing");
 

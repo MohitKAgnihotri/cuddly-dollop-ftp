@@ -215,7 +215,7 @@ void TcpThread::run() //cs: Server socket
             /* Download request */
             case GET:
                 cout  << "Starting transfer of" << rpdu.buffer << endl;
-                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out| ios::binary);
                 if (!file_get.is_open())
                 {
                     Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found" ));
@@ -235,7 +235,7 @@ void TcpThread::run() //cs: Server socket
                 Create_Ready_Request(spdu);
                 msg_send(cs, &spdu); // tell client ready
 
-                file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out);
+                file_put.open("server"+ std::string(rpdu.buffer), std::fstream::out| ios::binary);
                 if (!file_put.is_open())
                     err_sys("failed to open the file");
                 printf("Starting transfer of \"%s\".\n", rpdu.buffer);
@@ -275,7 +275,7 @@ void TcpThread::run() //cs: Server socket
                             if (rpdu.type == GET) {
                                 cout << "Starting transfer of" << rpdu.buffer << endl;
 
-                                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out| ios::binary);
                                 if (!file_get.is_open()) {
                                     Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found"));
                                     msg_send(cs, &spdu);
@@ -341,7 +341,7 @@ void TcpThread::run() //cs: Server socket
                             if (rpdu.type == GET) {
                                 cout << "Syncing file: \t" << rpdu.buffer << endl;
 
-                                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out);
+                                file_get.open(rpdu.buffer, std::fstream::in | std::fstream::out | ios::binary);
                                 if (!file_get.is_open()) {
                                     Create_Error_Request(spdu, string("Error: File " + string(rpdu.buffer) + " Not Found"));
                                     msg_send(cs, &spdu);
@@ -405,7 +405,7 @@ void TcpThread::run() //cs: Server socket
                     msg_recv(cs, &rpdu); // Receive a message from the client
                     if (rpdu.type == PUT)
                     {
-                        file_put.open("server" + std::string(rpdu.buffer), std::fstream::out);
+                        file_put.open("server" + std::string(rpdu.buffer), std::fstream::out | ios::binary);
                         if (!file_put.is_open())
                             err_sys("failed to open the file");
 
