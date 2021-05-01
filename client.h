@@ -13,6 +13,8 @@ class TcpClient
     void create_put_message(Msg&, char const* filename);
     void create_getall_message(Msg&, char const* filename);
     void create_putall_message(Msg&, char const* filename);
+    void create_sync_message(Msg&, char const* filename);
+
     void create_end_message(Msg& pdu);
     bool getfile(const char* filename);
     bool putfile(const char* filename);

@@ -18,6 +18,16 @@
 
 using namespace std;
 
+
+bool compare_func(const filename_with_modTime_t s1, const filename_with_modTime_t s2)
+{
+    if ((s1.modTime == s2.modTime)
+            && (s1.filename == s2.filename))
+        return true;
+    else
+        return false;
+}
+
 void
 TcpClient::create_get_message(Msg &pdu, char const *filename)
 {
@@ -35,6 +45,16 @@ TcpClient::create_getall_message(Msg &pdu, char const *foldername)
 {
     memset(&pdu, 0x00, sizeof(Msg));
     pdu.type = GETALL;
+    strncpy(pdu.buffer, foldername, strlen(foldername));
+    pdu.length = strlen(tpdu.buffer);
+    pdu.buffer[pdu.length + 1] = '\0';
+}
+
+void
+TcpClient::create_sync_message(Msg &pdu, char const *foldername)
+{
+    memset(&pdu, 0x00, sizeof(Msg));
+    pdu.type = SYNC;
     strncpy(pdu.buffer, foldername, strlen(foldername));
     pdu.length = strlen(tpdu.buffer);
     pdu.buffer[pdu.length + 1] = '\0';
@@ -337,7 +357,7 @@ TcpClient::run(int argc, char *argv[])
             case SYNC:
             {
                 //Try to create folder with the name in the Request
-                vector<string> currfileList = getFilesinDir(inputfoldername);
+                vector<filename_with_modTime_t*> clientfileList = getFilesinDirWithModTime(inputfoldername);
                 if (CreateDirectory(inputfoldername, NULL))
                 {
                     std::cout << "Directory" << inputfoldername
@@ -352,7 +372,7 @@ TcpClient::run(int argc, char *argv[])
                 }
 
                 // Send the message to the server and await ready response.
-                create_getall_message(tpdu, inputfoldername);
+                create_sync_message(tpdu, inputfoldername);
 
                 /*Send Request to the server */
                 msg_send(sock, &tpdu);
@@ -362,11 +382,59 @@ TcpClient::run(int argc, char *argv[])
 
                 if (rpdu.type == DATA_SUCCESS)
                 {
-                    vector<string> fileList = ParseListofFile(rpdu.buffer);
-                    for (auto &file : fileList)
+                    vector<filename_with_modTime_t*> serverfileList = ParseListofFileWithModTime(rpdu.buffer);
+
+                    // populate put list
+                    vector <string> put_list;
+                    bool found = false;
+                    for (int i =0; i < clientfileList.size(); i++)
                     {
-                        if (std::find(currfileList.begin(), currfileList.end(), file) == currfileList.end())
+                        found = false;
+                        for (int j = 0; j < serverfileList.size(); j++)
                         {
+                            if (clientfileList[i]->filename == serverfileList[j]->filename)
+                            {
+                                found = true;
+                                if (clientfileList[i]->modTime > serverfileList[j]->modTime)
+                                {
+                                    put_list.emplace_back(clientfileList[i]->filename);
+                                }
+
+                            }
+                        }
+                        if (!found)
+                        {
+                            put_list.emplace_back(clientfileList[i]->filename);
+                        }
+                    }
+
+                    // populate put list
+                    vector <string> get_list;
+                    found = false;
+                    for (int i =0; i < serverfileList.size(); i++)
+                    {
+                        found = false;
+                        for (int j = 0; j < clientfileList.size(); j++)
+                        {
+                            if (serverfileList[i]->filename == clientfileList[j]->filename)
+                            {
+                                found = true;
+                                if (serverfileList[i]->modTime > clientfileList[j]->modTime)
+                                {
+                                    get_list.emplace_back(serverfileList[i]->filename);
+                                }
+
+                            }
+                        }
+                        if (!found)
+                        {
+                            get_list.emplace_back(serverfileList[i]->filename);
+                        }
+                    }
+
+                    /* Get all the files */
+                    for (auto &file : get_list)
+                    {
                             create_get_message(tpdu, file.c_str());
                             /*Send Data to the server */
                             msg_send(sock, &tpdu);
@@ -387,8 +455,33 @@ TcpClient::run(int argc, char *argv[])
                                 cout << "Unexpected Message from the server: MessageType" << rpdu.type
                                      << "Message content = " << rpdu.buffer << endl;
                             }
+                    }
+
+                    /* Pull all the files */
+                    for (auto &file : put_list)
+                    {
+                        create_put_message(tpdu, file.c_str());
+                        /*Send Data to the server */
+                        msg_send(sock, &tpdu);
+
+                        /*Receive Ready from the server*/
+                        msg_recv(sock, &rpdu);
+
+                        if (rpdu.type == DATA_SUCCESS)
+                        {
+                            putfile(file.c_str());
+                        }
+                        else if (rpdu.type == DATA_ERROR)
+                        {
+                            cout << "Received Failure Response from the server" << rpdu.buffer << endl;
+                        }
+                        else
+                        {
+                            cout << "Unexpected Message from the server: MessageType" << rpdu.type
+                                 << "Message content = " << rpdu.buffer << endl;
                         }
                     }
+
                     create_end_message(tpdu);
                     msg_send(sock, &tpdu);
                     cout << "Sync completed for " << inputfoldername << endl;

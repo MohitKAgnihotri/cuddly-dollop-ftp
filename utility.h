@@ -26,6 +26,12 @@ typedef enum
     END
 } command;
 
+typedef struct filename_with_modTime
+{
+    std::string filename;
+    int64_t modTime;
+}filename_with_modTime_t;
+
 typedef struct
 {
     command type;
@@ -41,5 +47,8 @@ unsigned int getfileSize(std::fstream &file);
 std::vector<std::string> getFilesinDir(const char* folder);
 std::string current_working_directory( void );
 std::vector<std::string> ParseListofFile(char * inputBuffer);
+std::vector<int64_t> getLastModifiedTime(const char* folder, std::vector<std::string> fileList);
+std::vector<filename_with_modTime_t*> ParseListofFileWithModTime(char * inputBuffer);
+std::vector<filename_with_modTime_t*>  getFilesinDirWithModTime(const char* folder);
 
 #endif//FTP_UTILITY_H

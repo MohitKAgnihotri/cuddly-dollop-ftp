@@ -12,8 +12,6 @@ class TcpServer
 	unsigned short ServerPort;     /* Server port */
 	int clientLen;            /* Length of Server address data structure */
 	char servername[HOSTNAME_LENGTH];
-
-
 public:
 		TcpServer();
 		~TcpServer();

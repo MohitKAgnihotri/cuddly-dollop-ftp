@@ -12,12 +12,48 @@
 using namespace std;
 
 
+
+
+vector<filename_with_modTime_t*>  getFilesinDirWithModTime(const char* folder)
+{
+    vector<filename_with_modTime_t*> filelist_with_time;
+    vector<string> filesinDir = getFilesinDir(folder);
+    vector<int64_t> modificationTime = getLastModifiedTime(folder, filesinDir);
+
+    for ( int i = 0; i < filesinDir.size(); i++)
+    {
+        filename_with_modTime_t *temp = new filename_with_modTime_t;
+        temp->filename = filesinDir[i];
+        temp->modTime = modificationTime[i];
+        filelist_with_time.emplace_back(temp);
+    }
+    return filelist_with_time;
+}
+
+
+vector<int64_t> getLastModifiedTime(const char* folder, vector<string> fileList)
+{
+    vector<int64_t> mod_time;
+    struct _stat result;
+
+    SetCurrentDirectory(folder);
+    for (auto &file : fileList)
+    {
+        if (_stat(file.c_str(), &result) == 0)
+        {
+            mod_time.emplace_back(result.st_mtime);
+        }
+    }
+    SetCurrentDirectory("../");
+    return mod_time;
+}
+
 std::string current_working_directory( void )
 {
     char* cwd = _getcwd( 0, 0 ) ; // **** microsoft specific ****
     std::string working_directory(cwd) ;
     std::free(cwd) ;
-    return working_directory ;
+    return working_directory;
 }
 
 vector<string> ParseListofFile(char * inputBuffer)
@@ -31,6 +67,29 @@ vector<string> ParseListofFile(char * inputBuffer)
     }
     return filelist;
 }
+
+vector<filename_with_modTime_t*> ParseListofFileWithModTime(char * inputBuffer)
+{
+    vector<filename_with_modTime_t*> filelist_with_time;
+    char* next_token;
+    char *p = strtok_s(inputBuffer, ",", &next_token);
+    while (p) {
+        string filename = string(p);
+        p = strtok_s(NULL, ",",&next_token);
+        string modtime = string(p);
+
+        auto *temp = new filename_with_modTime_t;
+        temp->filename = filename;
+        temp->modTime = stoll(modtime);
+
+        filelist_with_time.emplace_back(temp);
+        p = strtok_s(NULL, ",",&next_token);
+    }
+    return filelist_with_time;
+}
+
+
+
 
 vector<string> getFilesinDir(const char* folder)
 {
